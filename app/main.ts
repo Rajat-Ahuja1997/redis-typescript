@@ -4,8 +4,10 @@ import * as net from 'net'; // net module allows you to create TCP servers
 console.log('Logs from your program will appear here!');
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
-  connection.on('data', (data) => {
-    connection.write('+PONG\r\n');
+  connection.on('data', (data: Buffer) => {
+    if (data.toString() === 'PING\r\n') {
+      connection.write('+PONG\r\n');
+    }
   });
 
   // Handle connection
