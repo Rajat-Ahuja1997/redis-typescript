@@ -7,6 +7,12 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on('data', (data: Buffer) => {
     if (data.toString() === 'PING\r\n') {
       connection.write('+PONG\r\n');
+    } else if (data.toString().toUpperCase() === 'ECHO') {
+      // get content between \r\n and \r\n
+      const start = data.indexOf('\r\n') + 2;
+      const end = data.lastIndexOf('\r\n');
+      const content = data.toString().substring(start, end);
+      connection.write(`+${content}\r\n`);
     }
   });
 
