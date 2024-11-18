@@ -2,6 +2,7 @@ import * as net from 'net';
 import RESPParser from './parser';
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
+  const map = new Map<string, string>();
   const parser = new RESPParser();
   connection.on('data', (data: Buffer) => {
     const parsedInput = parser.parse(data);
@@ -9,7 +10,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
       return;
     }
 
-    const response = handleParsedInput(parsedInput);
+    const response = handleParsedInput(parsedInput, map);
     if (response) {
       // Send response in RESP format
       console.log(response);
@@ -20,18 +21,27 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
 
 server.listen(6379, '127.0.0.1');
 
-function handleParsedInput(parsedInput: any) {
+function handleParsedInput(
+  parsedInput: any,
+  map: Map<string, string>
+): string | null {
   console.log('parsedInput', parsedInput);
-  if (parsedInput.type === '*' && Array.isArray(parsedInput.value)) {
+  const parsedValue = parsedInput.value;
+  if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
     const command = parsedInput.value[0]?.toString().toUpperCase();
 
     switch (command) {
       case 'PING':
         return 'PONG';
       case 'ECHO':
-        return parsedInput.value[1]?.toString() || '';
+        return parsedValue[1]?.toString() || '';
+      case 'SET': {
+        const key = parsedValue[1]?.toString();
+        const value = parsedValue[2]?.toString();
+        map.set(key, value);
+        return 'OK';
+      }
       default:
-        return null;
     }
   }
   return null;
