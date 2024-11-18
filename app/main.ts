@@ -14,7 +14,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
     if (response) {
       // Send response in RESP format
       console.log(response);
-      connection.write(`+${response}\r\n`);
+      connection.write(response);
     }
   });
 });
@@ -32,18 +32,21 @@ function handleParsedInput(
 
     switch (command) {
       case 'PING':
-        return 'PONG';
+        return '+PONG\r\n';
       case 'ECHO':
-        return parsedValue[1]?.toString() || '';
+        // return $3\r\nhey\r\n
+        return `$${parsedValue[1]?.length}\r\n${parsedValue[1]}\r\n`;
       case 'SET': {
         const key = parsedValue[1]?.toString();
         const value = parsedValue[2]?.toString();
         map.set(key, value);
-        return 'OK';
+        return '+OK\r\n';
       }
       case 'GET': {
         const key = parsedValue[1]?.toString();
-        return map.get(key) || '(nil)';
+        return map.get(key)
+          ? `$${map.get(key)?.length}\r\n${map.get(key)}\r\n`
+          : '-1';
       }
       default:
     }
