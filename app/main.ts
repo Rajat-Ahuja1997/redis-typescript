@@ -41,6 +41,10 @@ function handleParsedInput(
         map.set(key, value);
         return 'OK';
       }
+      case 'GET': {
+        const key = parsedValue[1]?.toString();
+        return map.get(key) || '(nil)';
+      }
       default:
     }
   }
