@@ -1,22 +1,38 @@
-import * as net from 'net'; // net module allows you to create TCP servers
-
-// You can use print statements as follows for debugging, they'll be visible when running tests.
-console.log('Logs from your program will appear here!');
+import * as net from 'net';
+import RESPParser from './parser';
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
+  const parser = new RESPParser();
   connection.on('data', (data: Buffer) => {
-    if (data.toString() === 'PING\r\n') {
-      connection.write('+PONG\r\n');
-    } else if (data.toString().toUpperCase() === 'ECHO') {
-      // get content between \r\n and \r\n
-      const start = data.indexOf('\r\n') + 2;
-      const end = data.lastIndexOf('\r\n');
-      const content = data.toString().substring(start, end);
-      connection.write(`+${content}\r\n`);
+    const parsedInput = parser.parse(data);
+    if (!parsedInput) {
+      return;
+    }
+
+    const response = handleParsedInput(parsedInput);
+    if (response) {
+      // Send response in RESP format
+      console.log(response);
+      connection.write(`+${response}\r\n`);
     }
   });
-
-  // Handle connection
 });
 
-server.listen(6379, '127.0.0.1'); // 6379 is the default port that Redis uses
+server.listen(6379, '127.0.0.1');
+
+function handleParsedInput(parsedInput: any) {
+  console.log('parsedInput', parsedInput);
+  if (parsedInput.type === '*' && Array.isArray(parsedInput.value)) {
+    const command = parsedInput.value[0]?.toString().toUpperCase();
+
+    switch (command) {
+      case 'PING':
+        return 'PONG';
+      case 'ECHO':
+        return parsedInput.value[1]?.toString() || '';
+      default:
+        return null;
+    }
+  }
+  return null;
+}
