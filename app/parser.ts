@@ -6,7 +6,7 @@ enum RESPType {
   Error = '-',
 }
 
-interface RESPData {
+export interface RESPData {
   type: RESPType;
   value: string | number | null | (string | number | null)[];
 }
