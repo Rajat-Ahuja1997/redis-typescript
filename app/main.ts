@@ -19,8 +19,12 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
   });
 });
 
+const args = process.argv;
+const parameters = args.slice(2);
+const dir = parameters[parameters.indexOf('--dir') + 1];
+const dbfilename = parameters[parameters.indexOf('--dbfilename') + 1];
+console.log(`dir: ${dir}, dbfilename: ${dbfilename}`);
 server.listen(6379, '127.0.0.1');
-
 function handleParsedInput(
   parsedInput: RESPData | null,
   map: Map<string, string>
@@ -74,6 +78,23 @@ function handleParsedInput(
         const value = map.get(key);
         return value ? `$${value.length}\r\n${value}\r\n` : '$-1\r\n';
       }
+
+      case 'CONFIG GET': {
+        const parameter = parsedValue[1]?.toString();
+        if (!parameter) {
+          return '-ERR invalid arguments\r\n';
+        }
+
+        switch (parameter) {
+          case 'dir':
+            return '+OK\r\n$2\r\n10\r\n';
+          case 'dbfilename':
+            return '+OK\r\n$9\r\ndump.rdb\r\n';
+          default:
+            return '-ERR unsupported parameter\r\n';
+        }
+      }
+
       default:
         return '-ERR unknown command\r\n';
     }
