@@ -1,16 +1,23 @@
 import * as net from 'net';
 import RESPParser, { type RESPData } from './parser';
+import type { TopLevelCommand } from './types';
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
   const map = new Map<string, string>();
-  const args = process.argv;
-  const parameters = args.slice(2);
-  const dir = parameters[parameters.indexOf('--dir') + 1];
-  const dbfilename = parameters[parameters.indexOf('--dbfilename') + 1];
-  map.set('dir', dir);
-  map.set('dbfilename', dbfilename);
-  const parser = new RESPParser();
+  const parameters = process.argv.slice(2);
+  const dirIndex = parameters.indexOf('--dir');
+  const dbFilenameIndex = parameters.indexOf('--dbfilename');
+
+  if (dirIndex !== -1) {
+    map.set('dir', parameters[dirIndex + 1]);
+  }
+
+  if (dbFilenameIndex !== -1) {
+    map.set('dbfilename', parameters[dbFilenameIndex + 1]);
+  }
+
   connection.on('data', (data: Buffer) => {
+    const parser = new RESPParser();
     const parsedInput = parser.parse(data);
     if (!parsedInput) {
       return;
@@ -18,14 +25,13 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
 
     const response = handleParsedInput(parsedInput, map);
     if (response) {
-      // Send response in RESP format
-      console.log(response);
       connection.write(response);
     }
   });
 });
 
 server.listen(6379, '127.0.0.1');
+
 function handleParsedInput(
   parsedInput: RESPData | null,
   map: Map<string, string>
@@ -39,15 +45,15 @@ function handleParsedInput(
   }
 
   if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
-    const command = (parsedValue[0] ?? '').toString().toUpperCase();
-    console.log('command', command);
-
+    const command = (parsedValue[0] ?? '')
+      .toString()
+      .toUpperCase() as TopLevelCommand;
     switch (command) {
       case 'PING':
         return '+PONG\r\n';
       case 'ECHO': {
         const echoValue = parsedValue[1]?.toString() ?? '';
-        return `$${echoValue.length}\r\n${echoValue}\r\n`;
+        return `$${_formatStringResponse(echoValue)}`;
       }
       case 'SET': {
         const key = parsedValue[1]?.toString();
@@ -78,7 +84,7 @@ function handleParsedInput(
         }
 
         const value = map.get(key);
-        return value ? `$${value.length}\r\n${value}\r\n` : '$-1\r\n';
+        return value ? `$${_formatStringResponse(value)}` : '$-1\r\n';
       }
 
       case 'CONFIG': {
@@ -94,20 +100,17 @@ function handleParsedInput(
 
           switch (parameter) {
             case 'dir':
-              //*2\r\n$3\r\ndir\r\n$16\r\n/tmp/redis-files\r\n
-              return `*2\r\n$3\r\ndir\r\n$${
-                map.get('dir')?.length
-              }\r\n${map.get('dir')}\r\n`;
+              return `*2\r\n$3\r\ndir\r\n$${_formatStringResponse(
+                map.get('dir')
+              )}`;
             case 'dbfilename':
-              return `*2\r\n$9\r\ndbfilename\r\n$${
-                map.get('dbfilename')?.length
-              }\r\n${map.get('dbfilename')}\r\n`;
+              return `*2\r\n$9\r\ndbfilename\r\n$${_formatStringResponse(
+                map.get('dbFileName')
+              )}`;
             default:
-              console.log('unsupported parameter', parameter);
               return '-ERR unsupported parameter\r\n';
           }
         } else {
-          console.log('unsupported nested command', nestedCommand);
           return '-ERR unsupported nested command for CONFIG\r\n';
         }
       }
@@ -117,4 +120,11 @@ function handleParsedInput(
     }
   }
   return null;
+}
+
+function _formatStringResponse(value: string | undefined): string {
+  if (!value) {
+    return '-1\r\n';
+  }
+  return `$${value.length}\r\n${value}\r\n`;
 }
