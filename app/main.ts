@@ -1,6 +1,7 @@
 import * as net from 'net';
 import RESPParser, { type RESPData } from './parser';
 import type { TopLevelCommand } from './types';
+import * as fs from 'fs';
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
   const map = new Map<string, string>();
@@ -43,7 +44,6 @@ function handleParsedInput(
   if (parsedValue === null) {
     return null;
   }
-
   if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
     const command = (parsedValue[0] ?? '')
       .toString()
@@ -53,7 +53,7 @@ function handleParsedInput(
         return '+PONG\r\n';
       case 'ECHO': {
         const echoValue = parsedValue[1]?.toString() ?? '';
-        return `$${_formatStringResponse(echoValue)}`;
+        return `${_formatStringResponse(echoValue)}`;
       }
       case 'SET': {
         const key = parsedValue[1]?.toString();
@@ -84,9 +84,8 @@ function handleParsedInput(
         }
 
         const value = map.get(key);
-        return value ? `$${_formatStringResponse(value)}` : '$-1\r\n';
+        return value ? `${_formatStringResponse(value)}` : '$-1\r\n';
       }
-
       case 'CONFIG': {
         const nestedCommand = parsedValue[1]?.toString();
         if (!nestedCommand) {
@@ -100,11 +99,11 @@ function handleParsedInput(
 
           switch (parameter) {
             case 'dir':
-              return `*2\r\n$3\r\ndir\r\n$${_formatStringResponse(
+              return `*2\r\n$3\r\ndir\r\n${_formatStringResponse(
                 map.get('dir')
               )}`;
             case 'dbfilename':
-              return `*2\r\n$9\r\ndbfilename\r\n$${_formatStringResponse(
+              return `*2\r\n$9\r\ndbfilename\r\n${_formatStringResponse(
                 map.get('dbFileName')
               )}`;
             default:
@@ -113,6 +112,31 @@ function handleParsedInput(
         } else {
           return '-ERR unsupported nested command for CONFIG\r\n';
         }
+      }
+      case 'KEYS': {
+        const parameter = parsedValue[1]?.toString();
+        if (!parameter) {
+          return '-ERR invalid arguments\r\n';
+        }
+
+        if (parameter === '*') {
+          const filepath = `${map.get('dir')}/${map.get('dbfilename')}`;
+          const content = fs.readFileSync(filepath);
+          const data = content.toString('hex');
+          const dbKeys = data.slice(data.indexOf('fe'));
+          console.log(`dbKeys: ${dbKeys}`);
+          const numKeys = dbKeys.slice(6, 8);
+          console.log(`numKeys: ${numKeys}`);
+          const keyLength = dbKeys.slice(8 + 4, 8 + 4 + 2);
+          const key = dbKeys.slice(
+            8 + 4 + 2,
+            8 + 4 + 2 + parseInt(keyLength) * 2
+          );
+
+          const formattedKey = Buffer.from(key, 'hex').toString();
+          return `*1\r\n${_formatStringResponse(formattedKey)}`;
+        }
+        break;
       }
 
       default:
