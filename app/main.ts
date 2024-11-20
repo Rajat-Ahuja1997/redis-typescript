@@ -83,7 +83,21 @@ function handleParsedInput(
           return '-ERR invalid arguments\r\n';
         }
 
-        const value = map.get(key);
+        const filepath = `${map.get('dir')}/${map.get('dbfilename')}`;
+        const content = fs.readFileSync(filepath);
+        const data = content.toString('hex');
+
+        const hexKey = Buffer.from(key).toString('hex');
+
+        const startIdx = data.indexOf(hexKey) + hexKey.length;
+        const value = Buffer.from(
+          data.slice(startIdx, startIdx + hexKey.length),
+          'hex'
+        ).toString();
+        console.log('hexKey', hexKey);
+        console.log('lengt h', hexKey.length);
+        console.log('value', value);
+
         return value ? `${_formatStringResponse(value)}` : '$-1\r\n';
       }
       case 'CONFIG': {
@@ -124,9 +138,6 @@ function handleParsedInput(
           const content = fs.readFileSync(filepath);
           const data = content.toString('hex');
           const dbKeys = data.slice(data.indexOf('fe'));
-          console.log(`dbKeys: ${dbKeys}`);
-          const numKeys = dbKeys.slice(6, 8);
-          console.log(`numKeys: ${numKeys}`);
           const keyLength = dbKeys.slice(8 + 4, 8 + 4 + 2);
           const key = dbKeys.slice(
             8 + 4 + 2,
