@@ -3,20 +3,17 @@ import RESPParser, { type RESPData } from './parser';
 import type { TopLevelCommand } from './types';
 import * as fs from 'fs';
 
+const parameters = Bun.argv.slice(2);
+const dirIndex = parameters.indexOf('--dir');
+const dbFilenameIndex = parameters.indexOf('--dbfilename');
+
+const CONFIG = {
+  dir: parameters[dirIndex + 1] ?? '',
+  dbFileName: parameters[dbFilenameIndex + 1] ?? '',
+};
+
 const server: net.Server = net.createServer((connection: net.Socket) => {
   const map = new Map<string, string>();
-  const parameters = process.argv.slice(2);
-  const dirIndex = parameters.indexOf('--dir');
-  const dbFilenameIndex = parameters.indexOf('--dbfilename');
-
-  if (dirIndex !== -1) {
-    map.set('dir', parameters[dirIndex + 1]);
-  }
-
-  if (dbFilenameIndex !== -1) {
-    map.set('dbfilename', parameters[dbFilenameIndex + 1]);
-  }
-
   connection.on('data', (data: Buffer) => {
     const parser = new RESPParser();
     const parsedInput = parser.parse(data);
@@ -28,6 +25,11 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
     if (response) {
       connection.write(response);
     }
+  });
+
+  connection.on('close', () => {
+    console.log('connection closed');
+    connection.end();
   });
 });
 
@@ -70,7 +72,7 @@ function handleParsedInput(
             return '-ERR invalid timeout\r\n';
           }
           setTimeout(() => {
-            map.delete(key);
+            map.set(key, 'expired');
           }, timeout);
         }
 
@@ -83,19 +85,28 @@ function handleParsedInput(
           return '-ERR invalid arguments\r\n';
         }
 
-        const filepath = `${map.get('dir')}/${map.get('dbfilename')}`;
+        const mapVal = map.get(key);
+        if (mapVal && mapVal !== 'expired') {
+          return `${_formatStringResponse(mapVal)}`;
+        } else if (mapVal === 'expired') {
+          return '$-1\r\n';
+        }
+
+        const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
+        console.log('path', filepath);
         const content = fs.readFileSync(filepath);
         const data = content.toString('hex');
 
         const hexKey = Buffer.from(key).toString('hex');
 
         const startIdx = data.indexOf(hexKey) + hexKey.length;
+        const endIdx = data.indexOf('ff') + 2;
         const value = Buffer.from(
-          data.slice(startIdx, startIdx + hexKey.length),
+          data.slice(startIdx + 2, endIdx),
           'hex'
         ).toString();
         console.log('hexKey', hexKey);
-        console.log('lengt h', hexKey.length);
+        console.log('length ', hexKey.length);
         console.log('value', value);
 
         return value ? `${_formatStringResponse(value)}` : '$-1\r\n';
@@ -113,12 +124,10 @@ function handleParsedInput(
 
           switch (parameter) {
             case 'dir':
-              return `*2\r\n$3\r\ndir\r\n${_formatStringResponse(
-                map.get('dir')
-              )}`;
+              return `*2\r\n$3\r\ndir\r\n${_formatStringResponse(CONFIG.dir)}`;
             case 'dbfilename':
               return `*2\r\n$9\r\ndbfilename\r\n${_formatStringResponse(
-                map.get('dbFileName')
+                CONFIG.dbFileName
               )}`;
             default:
               return '-ERR unsupported parameter\r\n';
@@ -134,15 +143,19 @@ function handleParsedInput(
         }
 
         if (parameter === '*') {
-          const filepath = `${map.get('dir')}/${map.get('dbfilename')}`;
+          const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
+          console.log('path', filepath);
           const content = fs.readFileSync(filepath);
           const data = content.toString('hex');
           const dbKeys = data.slice(data.indexOf('fe'));
+          console.log('dbKeys', dbKeys);
           const keyLength = dbKeys.slice(8 + 4, 8 + 4 + 2);
+          console.log('keyLength', keyLength);
           const key = dbKeys.slice(
             8 + 4 + 2,
             8 + 4 + 2 + parseInt(keyLength) * 2
           );
+          console.log('key', key);
 
           const formattedKey = Buffer.from(key, 'hex').toString();
           return `*1\r\n${_formatStringResponse(formattedKey)}`;
