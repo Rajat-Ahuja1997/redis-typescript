@@ -95,7 +95,7 @@ function handleParsedInput(
           'hex'
         ).toString();
         console.log('hexKey', hexKey);
-        console.log('lengt h', hexKey.length);
+        console.log('length', hexKey.length);
         console.log('value', value);
 
         return value ? `${_formatStringResponse(value)}` : '$-1\r\n';
