@@ -27,7 +27,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
       const content = fs.readFileSync(filepath);
       const hexContent = content.toString('hex');
       const db = hexContent.slice(hexContent.indexOf('fe'));
-      _parseRedisDB(db, map);
+      _loadRDBFile(db, map);
     } catch (e) {
       console.log('Error reading RDB file', e);
     }
@@ -152,10 +152,11 @@ function handleParsedInput(
 }
 
 /**
- * example RDB file format:
- * 00000567726170650970696e656170706c65000662616e616e610662616e616e61000a73747261776265727279056170706c650009726173706265727279066f72616e6765ff
+ * Parses a serialized RDB file and populates a map with the key-value pairs
+ * @param data Serialized RDB file content representing one redis DB
+ * @param map Map to populate with key-value pairs
  */
-function _parseRedisDB(
+function _loadRDBFile(
   data: string,
   map: Map<string, string>
 ): Map<string, string> {
