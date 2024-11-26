@@ -21,6 +21,16 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
       return;
     }
 
+    try {
+      const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
+      const content = fs.readFileSync(filepath);
+      const hexContent = content.toString('hex');
+      const db = hexContent.slice(hexContent.indexOf('fe'));
+      _parseRedisDB(db, map);
+    } catch (e) {
+      console.log('Error reading RDB file', e);
+    }
+
     const response = handleParsedInput(parsedInput, map);
     if (response) {
       connection.write(response);
@@ -93,25 +103,7 @@ function handleParsedInput(
             return `${_formatStringResponse(map.get(key))}`;
           }
         }
-
-        console.log('multiple values');
-
-        // Check RDB file
-        const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
-
-        const content = fs.readFileSync(filepath);
-        const data = content.toString('hex');
-
-        const hexKey = Buffer.from(key).toString('hex');
-
-        const startIdx = data.indexOf(hexKey) + hexKey.length;
-        const endIdx = data.indexOf('ff') + 2;
-        const value = Buffer.from(
-          data.slice(startIdx + 2, endIdx),
-          'hex'
-        ).toString();
-
-        return value ? `${_formatStringResponse(value)}` : '$-1\r\n';
+        break;
       }
       case 'CONFIG': {
         const nestedCommand = parsedValue[1]?.toString();
@@ -147,12 +139,9 @@ function handleParsedInput(
         if (parameter === '*') {
           const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
 
-          const content = fs.readFileSync(filepath);
-          const data = content.toString('hex');
-          const db = data.slice(data.indexOf('fe'));
-          const entries = _parseRedisDB(db);
+          const entries = map.entries();
 
-          return _formatArrResponse(Array.from(entries.keys()));
+          return _formatArrResponse(Array.from(entries).map(([key]) => key));
         }
         break;
       }
@@ -168,8 +157,10 @@ function handleParsedInput(
  * example RDB file format:
  * 00000567726170650970696e656170706c65000662616e616e610662616e616e61000a73747261776265727279056170706c650009726173706265727279066f72616e6765ff
  */
-function _parseRedisDB(data: string): Map<string, string> {
-  const map = new Map<string, string>();
+function _parseRedisDB(
+  data: string,
+  map: Map<string, string>
+): Map<string, string> {
   const buf = Buffer.from(data, 'hex');
   let cursor = 0;
   if (buf[cursor] !== 0xfe) {
