@@ -22,6 +22,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
     }
 
     try {
+      // Read RDB file into in-memory map
       const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
       const content = fs.readFileSync(filepath);
       const hexContent = content.toString('hex');
@@ -137,10 +138,7 @@ function handleParsedInput(
         }
 
         if (parameter === '*') {
-          const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
-
           const entries = map.entries();
-
           return _formatArrResponse(Array.from(entries).map(([key]) => key));
         }
         break;
