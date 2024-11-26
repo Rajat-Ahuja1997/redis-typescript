@@ -148,15 +148,10 @@ function handleParsedInput(
           const content = fs.readFileSync(filepath);
           const data = content.toString('hex');
           const db = data.slice(data.indexOf('fe'));
-          _parseRedisDB(db);
-          console.log('dbKeys', db);
+          const entries = _parseRedisDB(db);
+          console.log('entries', entries);
 
-          const keyLength = db.slice(8 + 4, 8 + 4 + 2);
-
-          const key = db.slice(8 + 4 + 2, 8 + 4 + 2 + parseInt(keyLength) * 2);
-
-          const formattedKey = Buffer.from(key, 'hex').toString();
-          return `*1\r\n${_formatStringResponse(formattedKey)}`;
+          return _formatArrResponse(Array.from(entries.keys()));
         }
         break;
       }
@@ -172,39 +167,54 @@ function handleParsedInput(
  * example RDB file format:
  * 00000567726170650970696e656170706c65000662616e616e610662616e616e61000a73747261776265727279056170706c650009726173706265727279066f72616e6765ff
  */
-function _parseRedisDB(data: string): void {
+function _parseRedisDB(data: string): Map<string, string> {
+  const map = new Map<string, string>();
   const buf = Buffer.from(data, 'hex');
   let cursor = 0;
   if (buf[cursor] !== 0xfe) {
     throw new Error('Invalid RDB file');
   }
   cursor++;
-  const dbIndex = buf[cursor];
-  console.log('dbIndex', dbIndex);
-  cursor++;
-  console.log('metadata length', buf[cursor]);
-  cursor++;
-  const hashTableSize = buf[cursor];
-  console.log(hashTableSize, 'hashTableSize');
-  cursor++;
-  const expireSize = buf[cursor];
-  console.log(expireSize, 'expireSize');
-  cursor++;
-  const encodingFlag = buf[cursor];
-  console.log(encodingFlag, 'encodingFlag');
-  console.log('metadata', buf.slice(cursor));
+  const dbIndex = buf[cursor++];
+  console.log('metadata length', buf[cursor++]);
+  const hashTableSize = buf[cursor++];
+  const expireSize = buf[cursor++];
+  console.log(
+    `DB Index: ${dbIndex}, Hash Table Size: ${hashTableSize}, Expire Size: ${expireSize}`
+  );
   while (cursor < buf.length) {
     if (buf[cursor] === 0xff) {
       console.log('Reached end of DB');
       break;
     }
-    cursor++;
+    const encodingFlag = buf[cursor++];
+    const keyLength = buf[cursor++];
+    const key = buf.subarray(cursor, cursor + keyLength);
+    cursor += keyLength;
+    const valueLength = buf[cursor++];
+    const value = buf.slice(cursor, cursor + valueLength);
+    cursor += valueLength;
+    console.log(
+      `Key: ${key.toString()}, Value: ${value.toString()}, Key Length: ${keyLength}, Value Length: ${valueLength}`
+    );
+    console.log('cursor', buf.toString('hex'));
+    map.set(key.toString(), value.toString());
   }
+  return map;
 }
 
 function _formatStringResponse(value: string | undefined): string {
   if (!value) {
     return '-1\r\n';
   }
+  console.log(`formatting ${value}`);
   return `$${value.length}\r\n${value}\r\n`;
+}
+
+function _formatArrResponse(data: string[]): string {
+  let response = `*${data.length}\r\n`;
+  data.forEach((d) => {
+    response += `$${d.length}\r\n${d}\r\n`;
+  });
+  return response;
 }
