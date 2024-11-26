@@ -94,6 +94,8 @@ function handleParsedInput(
           }
         }
 
+        console.log('multiple values');
+
         // Check RDB file
         const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
 
