@@ -37,7 +37,7 @@ server.listen(6379, '127.0.0.1');
 
 function handleParsedInput(
   parsedInput: RESPData | null,
-  map: Map<string, string>
+  map: Map<string, string | undefined>
 ): string | null {
   if (!parsedInput) {
     return null;
@@ -72,7 +72,7 @@ function handleParsedInput(
             return '-ERR invalid timeout\r\n';
           }
           setTimeout(() => {
-            map.set(key, 'expired');
+            map.set(key, undefined);
           }, timeout);
         }
 
@@ -85,15 +85,18 @@ function handleParsedInput(
           return '-ERR invalid arguments\r\n';
         }
 
-        const mapVal = map.get(key);
-        if (mapVal && mapVal !== 'expired') {
-          return `${_formatStringResponse(mapVal)}`;
-        } else if (mapVal === 'expired') {
-          return '$-1\r\n';
+        // Check in-process map first
+        if (map.has(key)) {
+          if (map.get(key) === undefined) {
+            return '$-1\r\n';
+          } else {
+            return `${_formatStringResponse(map.get(key))}`;
+          }
         }
 
+        // Check RDB file
         const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
-        console.log('path', filepath);
+
         const content = fs.readFileSync(filepath);
         const data = content.toString('hex');
 
@@ -105,9 +108,6 @@ function handleParsedInput(
           data.slice(startIdx + 2, endIdx),
           'hex'
         ).toString();
-        console.log('hexKey', hexKey);
-        console.log('length ', hexKey.length);
-        console.log('value', value);
 
         return value ? `${_formatStringResponse(value)}` : '$-1\r\n';
       }
@@ -144,18 +144,16 @@ function handleParsedInput(
 
         if (parameter === '*') {
           const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
-          console.log('path', filepath);
+
           const content = fs.readFileSync(filepath);
           const data = content.toString('hex');
-          const dbKeys = data.slice(data.indexOf('fe'));
-          console.log('dbKeys', dbKeys);
-          const keyLength = dbKeys.slice(8 + 4, 8 + 4 + 2);
-          console.log('keyLength', keyLength);
-          const key = dbKeys.slice(
-            8 + 4 + 2,
-            8 + 4 + 2 + parseInt(keyLength) * 2
-          );
-          console.log('key', key);
+          const db = data.slice(data.indexOf('fe'));
+          _parseRedisDB(db);
+          console.log('dbKeys', db);
+
+          const keyLength = db.slice(8 + 4, 8 + 4 + 2);
+
+          const key = db.slice(8 + 4 + 2, 8 + 4 + 2 + parseInt(keyLength) * 2);
 
           const formattedKey = Buffer.from(key, 'hex').toString();
           return `*1\r\n${_formatStringResponse(formattedKey)}`;
@@ -168,6 +166,40 @@ function handleParsedInput(
     }
   }
   return null;
+}
+
+/**
+ * example RDB file format:
+ * 00000567726170650970696e656170706c65000662616e616e610662616e616e61000a73747261776265727279056170706c650009726173706265727279066f72616e6765ff
+ */
+function _parseRedisDB(data: string): void {
+  const buf = Buffer.from(data, 'hex');
+  let cursor = 0;
+  if (buf[cursor] !== 0xfe) {
+    throw new Error('Invalid RDB file');
+  }
+  cursor++;
+  const dbIndex = buf[cursor];
+  console.log('dbIndex', dbIndex);
+  cursor++;
+  console.log('metadata length', buf[cursor]);
+  cursor++;
+  const hashTableSize = buf[cursor];
+  console.log(hashTableSize, 'hashTableSize');
+  cursor++;
+  const expireSize = buf[cursor];
+  console.log(expireSize, 'expireSize');
+  cursor++;
+  const encodingFlag = buf[cursor];
+  console.log(encodingFlag, 'encodingFlag');
+  console.log('metadata', buf.slice(cursor));
+  while (cursor < buf.length) {
+    if (buf[cursor] === 0xff) {
+      console.log('Reached end of DB');
+      break;
+    }
+    cursor++;
+  }
 }
 
 function _formatStringResponse(value: string | undefined): string {
