@@ -149,7 +149,6 @@ function handleParsedInput(
           const data = content.toString('hex');
           const db = data.slice(data.indexOf('fe'));
           const entries = _parseRedisDB(db);
-          console.log('entries', entries);
 
           return _formatArrResponse(Array.from(entries.keys()));
         }
@@ -187,7 +186,7 @@ function _parseRedisDB(data: string): Map<string, string> {
       console.log('Reached end of DB');
       break;
     }
-    const encodingFlag = buf[cursor++];
+    cursor++; // skip entry type; 00 is string
     const keyLength = buf[cursor++];
     const key = buf.subarray(cursor, cursor + keyLength);
     cursor += keyLength;
