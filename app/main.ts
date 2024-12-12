@@ -1,7 +1,7 @@
 import * as net from 'net';
-import RESPParser, { type RESPData } from './parser';
-import type { TopLevelCommand } from './types';
 import * as fs from 'fs';
+import RESPParser, { type RESPData } from './parser';
+import { LOCALHOST, REDIS_PORT, type TopLevelCommand } from './types';
 
 const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
@@ -12,8 +12,21 @@ const CONFIG = {
   dbFileName: parameters[dbFilenameIndex + 1] ?? '',
 };
 
+// Global key-value store
+let globalKeyValueStore = new Map<string, string>();
+
+// Load RDB file at startup
+try {
+  const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
+  const content = fs.readFileSync(filepath);
+  const hexContent = content.toString('hex');
+  const db = hexContent.slice(hexContent.indexOf('fe'));
+  globalKeyValueStore = _loadRDBFile(db, new Map<string, string>());
+} catch (e) {
+  console.log('Error reading initial RDB file', e);
+}
+
 const server: net.Server = net.createServer((connection: net.Socket) => {
-  const map = new Map<string, string>();
   connection.on('data', (data: Buffer) => {
     const parser = new RESPParser();
     const parsedInput = parser.parse(data);
@@ -21,18 +34,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
       return;
     }
 
-    try {
-      // Read RDB file into in-memory map
-      const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
-      const content = fs.readFileSync(filepath);
-      const hexContent = content.toString('hex');
-      const db = hexContent.slice(hexContent.indexOf('fe'));
-      _loadRDBFile(db, map);
-    } catch (e) {
-      console.log('Error reading RDB file', e);
-    }
-
-    const response = handleParsedInput(parsedInput, map);
+    const response = handleParsedInput(parsedInput, globalKeyValueStore);
     if (response) {
       connection.write(response);
     }
@@ -44,7 +46,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
   });
 });
 
-server.listen(6379, '127.0.0.1');
+server.listen(REDIS_PORT, LOCALHOST);
 
 function handleParsedInput(
   parsedInput: RESPData | null,
@@ -177,6 +179,10 @@ function _loadRDBFile(
     if (buf[cursor] === 0xff) {
       console.log('Reached end of DB');
       break;
+    }
+
+    if (buf[cursor] === 0xfc) {
+      // 0xfc is a special entry type that indicates key-value pairs with expiry
     }
     cursor++; // skip entry type; 00 is string
     const keyLength = buf[cursor++];

@@ -7,3 +7,6 @@ export type TopLevelCommand =
   | 'GET'
   | 'CONFIG'
   | 'KEYS';
+
+export const REDIS_PORT = 6379;
+export const LOCALHOST = '127.0.0.1';
