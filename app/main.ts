@@ -102,6 +102,7 @@ function _loadRDBFile(
   }
   cursor++;
   const dbIndex = buf[cursor++];
+  console.log('metadata length', buf[cursor++]);
   const hashTableSize = buf[cursor++];
   const expireSize = buf[cursor++];
   console.log(
