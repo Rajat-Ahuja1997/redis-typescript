@@ -12,8 +12,21 @@ const CONFIG = {
   dbFileName: parameters[dbFilenameIndex + 1] ?? '',
 };
 
+// Global key-value store
+let globalKeyValueStore: Map<string, string> = new Map();
+
+// Load RDB file at startup
+try {
+  const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
+  const content = fs.readFileSync(filepath);
+  const hexContent = content.toString('hex');
+  const db = hexContent.slice(hexContent.indexOf('fe'));
+  globalKeyValueStore = _loadRDBFile(db, globalKeyValueStore);
+} catch (e) {
+  console.log('Error reading initial RDB file', e);
+}
+
 const server: net.Server = net.createServer((connection: net.Socket) => {
-  const map = new Map<string, string>();
   connection.on('data', (data: Buffer) => {
     const parser = new RESPParser();
     const parsedInput = parser.parse(data);
@@ -21,18 +34,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
       return;
     }
 
-    try {
-      // Read RDB file into in-memory map
-      const filepath = `${CONFIG.dir}/${CONFIG.dbFileName}`;
-      const content = fs.readFileSync(filepath);
-      const hexContent = content.toString('hex');
-      const db = hexContent.slice(hexContent.indexOf('fe'));
-      _loadRDBFile(db, map);
-    } catch (e) {
-      console.log('Error reading RDB file', e);
-    }
-
-    const response = handleParsedInput(parsedInput, map);
+    const response = handleParsedInput(parsedInput, globalKeyValueStore);
     if (response) {
       connection.write(response);
     }
@@ -167,7 +169,6 @@ function _loadRDBFile(
   }
   cursor++;
   const dbIndex = buf[cursor++];
-  console.log('metadata length', buf[cursor++]);
   const hashTableSize = buf[cursor++];
   const expireSize = buf[cursor++];
   console.log(
@@ -189,10 +190,7 @@ function _loadRDBFile(
     const valueLength = buf[cursor++];
     const value = buf.slice(cursor, cursor + valueLength);
     cursor += valueLength;
-    console.log(
-      `Key: ${key.toString()}, Value: ${value.toString()}, Key Length: ${keyLength}, Value Length: ${valueLength}`
-    );
-    console.log('cursor', buf.toString('hex'));
+
     map.set(key.toString(), value.toString());
   }
   return map;
