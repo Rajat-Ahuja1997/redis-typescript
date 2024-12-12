@@ -6,13 +6,15 @@ import { LOCALHOST, REDIS_PORT, type TopLevelCommand } from './types';
 const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
 const dbFilenameIndex = parameters.indexOf('--dbfilename');
+const portIndex = parameters.indexOf('--port');
 
 const CONFIG = {
   dir: parameters[dirIndex + 1] ?? '',
   dbFileName: parameters[dbFilenameIndex + 1] ?? '',
+  port: portIndex !== -1 ? parseInt(parameters[portIndex + 1]) : REDIS_PORT,
 };
 
-let globalKeyValueStore: Map<string, string> = new Map();
+let globalKeyValueStore: Map<string, string | undefined> = new Map();
 
 // Load RDB file at startup
 try {
@@ -45,7 +47,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
   });
 });
 
-server.listen(REDIS_PORT, LOCALHOST);
+server.listen(CONFIG.port, LOCALHOST);
 
 function handleParsedInput(
   parsedInput: RESPData | null,
