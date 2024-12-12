@@ -12,7 +12,6 @@ const CONFIG = {
   dbFileName: parameters[dbFilenameIndex + 1] ?? '',
 };
 
-// Global key-value store
 let globalKeyValueStore: Map<string, string> = new Map();
 
 // Load RDB file at startup
@@ -199,7 +198,10 @@ function handleConfigCommand(parsedValue: any) {
   }
 }
 
-function handleKeysCommand(parsedValue: any, map: Map<string, string>) {
+function handleKeysCommand(
+  parsedValue: any,
+  map: Map<string, string | undefined>
+) {
   const parameter = parsedValue[1]?.toString();
   if (!parameter) {
     return '-ERR invalid arguments\r\n';
@@ -209,6 +211,7 @@ function handleKeysCommand(parsedValue: any, map: Map<string, string>) {
     const entries = map.entries();
     return _formatArrResponse(Array.from(entries).map(([key]) => key));
   }
+  return '-ERR not implemented\r\n';
 }
 
 function _formatStringResponse(value: string | undefined): string {
