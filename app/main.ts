@@ -52,13 +52,11 @@ function handleParsedInput(
   parsedInput: RESPData | null,
   map: Map<string, string | undefined>
 ): string | null {
-  if (!parsedInput) {
+  if (!parsedInput || !parsedInput.value) {
     return null;
   }
   const parsedValue = parsedInput.value;
-  if (parsedValue === null) {
-    return null;
-  }
+
   if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
     const command = (parsedValue[0] ?? '')
       .toString()
@@ -67,83 +65,19 @@ function handleParsedInput(
       case 'PING':
         return '+PONG\r\n';
       case 'ECHO': {
-        const echoValue = parsedValue[1]?.toString() ?? '';
-        return `${_formatStringResponse(echoValue)}`;
+        return _formatStringResponse(parsedValue[1]?.toString());
       }
       case 'SET': {
-        const key = parsedValue[1]?.toString();
-        const value = parsedValue[2]?.toString();
-        if (!key || !value) {
-          return '-ERR invalid arguments\r\n';
-        }
-
-        map.set(key, value);
-        const timeoutArg = parsedValue[3]?.toString()?.toUpperCase();
-        if (timeoutArg === 'PX') {
-          const timeout = parseInt(parsedValue[4]?.toString() ?? '');
-          if (isNaN(timeout)) {
-            return '-ERR invalid timeout\r\n';
-          }
-          setTimeout(() => {
-            map.set(key, undefined);
-          }, timeout);
-        }
-
-        return '+OK\r\n';
+        return handleSetCommand(parsedValue, map);
       }
       case 'GET': {
-        const key = parsedValue[1]?.toString();
-
-        if (!key) {
-          return '-ERR invalid arguments\r\n';
-        }
-
-        // Check in-process map first
-        if (map.has(key)) {
-          if (map.get(key) === undefined) {
-            return '$-1\r\n';
-          } else {
-            return `${_formatStringResponse(map.get(key))}`;
-          }
-        }
-        break;
+        return handleGetCommand(parsedValue, map);
       }
       case 'CONFIG': {
-        const nestedCommand = parsedValue[1]?.toString();
-        if (!nestedCommand) {
-          return '-ERR missing second argument for CONFIG\r\n';
-        }
-        if (nestedCommand === 'GET') {
-          const parameter = parsedValue[2]?.toString();
-          if (!parameter) {
-            return '-ERR invalid arguments\r\n';
-          }
-
-          switch (parameter) {
-            case 'dir':
-              return `*2\r\n$3\r\ndir\r\n${_formatStringResponse(CONFIG.dir)}`;
-            case 'dbfilename':
-              return `*2\r\n$9\r\ndbfilename\r\n${_formatStringResponse(
-                CONFIG.dbFileName
-              )}`;
-            default:
-              return '-ERR unsupported parameter\r\n';
-          }
-        } else {
-          return '-ERR unsupported nested command for CONFIG\r\n';
-        }
+        return handleConfigCommand(parsedValue);
       }
       case 'KEYS': {
-        const parameter = parsedValue[1]?.toString();
-        if (!parameter) {
-          return '-ERR invalid arguments\r\n';
-        }
-
-        if (parameter === '*') {
-          const entries = map.entries();
-          return _formatArrResponse(Array.from(entries).map(([key]) => key));
-        }
-        break;
+        return handleKeysCommand(parsedValue, map);
       }
 
       default:
@@ -196,11 +130,91 @@ function _loadRDBFile(
   return map;
 }
 
+function handleSetCommand(
+  parsedValue: any,
+  map: Map<string, string | undefined>
+) {
+  const key = parsedValue[1]?.toString();
+  const value = parsedValue[2]?.toString();
+  if (!key || !value) {
+    return '-ERR invalid arguments\r\n';
+  }
+
+  map.set(key, value);
+  const timeoutArg = parsedValue[3]?.toString()?.toUpperCase();
+  if (timeoutArg === 'PX') {
+    const timeout = parseInt(parsedValue[4]?.toString() ?? '');
+    if (isNaN(timeout)) {
+      return '-ERR invalid timeout\r\n';
+    }
+    setTimeout(() => {
+      map.set(key, undefined);
+    }, timeout);
+  }
+
+  return '+OK\r\n';
+}
+
+function handleGetCommand(
+  parsedValue: any,
+  map: Map<string, string | undefined>
+) {
+  const key = parsedValue[1]?.toString();
+
+  if (!key) {
+    return '-ERR invalid arguments\r\n';
+  }
+
+  // Check in-process map
+  if (map.has(key) && map.get(key) !== undefined) {
+    return `${_formatStringResponse(map.get(key))}`;
+  }
+
+  return '$-1\r\n';
+}
+
+function handleConfigCommand(parsedValue: any) {
+  const nestedCommand = parsedValue[1]?.toString();
+  if (!nestedCommand) {
+    return '-ERR missing second argument for CONFIG\r\n';
+  }
+  if (nestedCommand === 'GET') {
+    const parameter = parsedValue[2]?.toString();
+    if (!parameter) {
+      return '-ERR invalid arguments\r\n';
+    }
+
+    switch (parameter) {
+      case 'dir':
+        const dirArr = ['dir', CONFIG.dir];
+        return _formatArrResponse(dirArr);
+      case 'dbfilename':
+        const dbArr = ['dbfilename', CONFIG.dbFileName];
+        return _formatArrResponse(dbArr);
+      default:
+        return '-ERR unsupported parameter\r\n';
+    }
+  } else {
+    return '-ERR unsupported nested command for CONFIG\r\n';
+  }
+}
+
+function handleKeysCommand(parsedValue: any, map: Map<string, string>) {
+  const parameter = parsedValue[1]?.toString();
+  if (!parameter) {
+    return '-ERR invalid arguments\r\n';
+  }
+
+  if (parameter === '*') {
+    const entries = map.entries();
+    return _formatArrResponse(Array.from(entries).map(([key]) => key));
+  }
+}
+
 function _formatStringResponse(value: string | undefined): string {
   if (!value) {
     return '-1\r\n';
   }
-  console.log(`formatting ${value}`);
   return `$${value.length}\r\n${value}\r\n`;
 }
 
