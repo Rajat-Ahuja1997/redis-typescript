@@ -81,6 +81,10 @@ function handleParsedInput(
         return handleKeysCommand(parsedValue, map);
       }
 
+      case 'INFO': {
+        return handleInfoCommand(parsedValue);
+      }
+
       default:
         return '-ERR unknown command\r\n';
     }
@@ -242,6 +246,19 @@ function handleKeysCommand(
     return _formatArrResponse(Array.from(entries).map(([key]) => key));
   }
   return '-ERR not implemented\r\n';
+}
+
+function handleInfoCommand(parsedValue: any) {
+  const nestedCommand = parsedValue[1]?.toString();
+  if (!nestedCommand) {
+    return '-ERR missing second argument for INFO\r\n';
+  }
+  switch (nestedCommand) {
+    case 'replication':
+      return _formatStringResponse('role:master');
+    default:
+      return '-ERR unsupported nested command for INFO\r\n';
+  }
 }
 
 function _formatStringResponse(value: string | undefined): string {
