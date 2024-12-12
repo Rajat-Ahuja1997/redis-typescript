@@ -93,8 +93,8 @@ function handleParsedInput(
  */
 function _loadRDBFile(
   data: string,
-  map: Map<string, string>
-): Map<string, string> {
+  map: Map<string, string | undefined>
+): Map<string, string | undefined> {
   const buf = Buffer.from(data, 'hex');
   let cursor = 0;
   if (buf[cursor] !== 0xfe) {
@@ -102,7 +102,7 @@ function _loadRDBFile(
   }
   cursor++;
   const dbIndex = buf[cursor++];
-  console.log('metadata length', buf[cursor++]);
+  cursor++; // IMPORTANT: increment to skip over metadata length
   const hashTableSize = buf[cursor++];
   const expireSize = buf[cursor++];
   console.log(
@@ -115,17 +115,44 @@ function _loadRDBFile(
     }
 
     if (buf[cursor] === 0xfc) {
-      // 0xfc is a special entry type that indicates key-value pairs with expiry
-    }
-    cursor++; // skip entry type; 00 is string
-    const keyLength = buf[cursor++];
-    const key = buf.subarray(cursor, cursor + keyLength);
-    cursor += keyLength;
-    const valueLength = buf[cursor++];
-    const value = buf.slice(cursor, cursor + valueLength);
-    cursor += valueLength;
+      // advance cursor to the beginning of the expiry time
+      cursor++;
+      // next 8 bytes are the expiry time, in reverse order (little endian)
+      const expiryTime = buf.subarray(cursor, cursor + 8);
+      const expiryTimeInt = parseInt(expiryTime.reverse().toString('hex'), 16);
+      const delay = expiryTimeInt - Date.now();
 
-    map.set(key.toString(), value.toString());
+      cursor += 8;
+      // next byte is key type, advance
+      cursor++;
+
+      // next byte is key length
+      const keyLength = buf[cursor++];
+      const key = buf.subarray(cursor, cursor + keyLength).toString();
+      cursor += keyLength;
+
+      // next byte is value length
+      const valueLength = buf[cursor++];
+      const value = buf.subarray(cursor, cursor + valueLength).toString();
+
+      map.set(key, value);
+      setTimeout(() => {
+        map.set(key, undefined);
+      }, delay);
+      cursor += valueLength;
+    } else {
+      cursor++; // skip entry type; 00 is string
+
+      const keyLength = buf[cursor++];
+      const key = buf.subarray(cursor, cursor + keyLength);
+      cursor += keyLength;
+
+      const valueLength = buf[cursor++];
+      const value = buf.slice(cursor, cursor + valueLength);
+      cursor += valueLength;
+
+      map.set(key.toString(), value.toString());
+    }
   }
   return map;
 }
