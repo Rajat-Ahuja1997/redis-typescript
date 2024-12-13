@@ -7,11 +7,13 @@ const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
 const dbFilenameIndex = parameters.indexOf('--dbfilename');
 const portIndex = parameters.indexOf('--port');
+const replicationIndex = parameters.indexOf('--replicaof');
 
 const CONFIG = {
   dir: parameters[dirIndex + 1] ?? '',
   dbFileName: parameters[dbFilenameIndex + 1] ?? '',
   port: portIndex !== -1 ? parseInt(parameters[portIndex + 1]) : REDIS_PORT,
+  replicaOf: replicationIndex !== -1 ? parameters[replicationIndex + 1] : null,
 };
 
 let globalKeyValueStore: Map<string, string | undefined> = new Map();
@@ -255,7 +257,11 @@ function handleInfoCommand(parsedValue: any) {
   }
   switch (nestedCommand) {
     case 'replication':
-      return _formatStringResponse('role:master');
+      if (CONFIG.replicaOf) {
+        return _formatStringResponse('role:slave');
+      } else {
+        return _formatStringResponse('role:master');
+      }
     default:
       return '-ERR unsupported nested command for INFO\r\n';
   }
