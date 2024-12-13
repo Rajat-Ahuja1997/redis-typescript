@@ -1,7 +1,16 @@
 import * as net from 'net';
 import * as fs from 'fs';
 import RESPParser, { type RESPData } from './parser';
-import { LOCALHOST, REDIS_PORT, type TopLevelCommand } from './types';
+import { LOCALHOST, REDIS_PORT, RedisCommand } from './types';
+import {
+  handlePing,
+  handleEchoCommand,
+  handleKeysCommand,
+  handleSetCommand,
+  handleInfoCommand,
+  handleConfigCommand,
+  handleGetCommand,
+} from './handlers';
 
 const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
@@ -9,7 +18,7 @@ const dbFilenameIndex = parameters.indexOf('--dbfilename');
 const portIndex = parameters.indexOf('--port');
 const replicationIndex = parameters.indexOf('--replicaof');
 
-const CONFIG = {
+export const CONFIG = {
   dir: parameters[dirIndex + 1] ?? '',
   dbFileName: parameters[dbFilenameIndex + 1] ?? '',
   port: portIndex !== -1 ? parseInt(parameters[portIndex + 1]) : REDIS_PORT,
@@ -63,29 +72,22 @@ function handleParsedInput(
   if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
     const command = (parsedValue[0] ?? '')
       .toString()
-      .toUpperCase() as TopLevelCommand;
+      .toUpperCase() as RedisCommand;
     switch (command) {
-      case 'PING':
-        return '+PONG\r\n';
-      case 'ECHO': {
-        return _formatStringResponse(parsedValue[1]?.toString());
-      }
-      case 'SET': {
+      case RedisCommand.PING:
+        return handlePing();
+      case RedisCommand.ECHO:
+        return handleEchoCommand(parsedValue);
+      case RedisCommand.SET:
         return handleSetCommand(parsedValue, map);
-      }
-      case 'GET': {
+      case RedisCommand.GET:
         return handleGetCommand(parsedValue, map);
-      }
-      case 'CONFIG': {
+      case RedisCommand.CONFIG:
         return handleConfigCommand(parsedValue);
-      }
-      case 'KEYS': {
+      case RedisCommand.KEYS:
         return handleKeysCommand(parsedValue, map);
-      }
-
-      case 'INFO': {
+      case RedisCommand.INFO:
         return handleInfoCommand(parsedValue);
-      }
 
       default:
         return '-ERR unknown command\r\n';
@@ -163,121 +165,4 @@ function _loadRDBFile(
     }
   }
   return map;
-}
-
-function handleSetCommand(
-  parsedValue: any,
-  map: Map<string, string | undefined>
-) {
-  const key = parsedValue[1]?.toString();
-  const value = parsedValue[2]?.toString();
-  if (!key || !value) {
-    return '-ERR invalid arguments\r\n';
-  }
-
-  map.set(key, value);
-  const timeoutArg = parsedValue[3]?.toString()?.toUpperCase();
-  if (timeoutArg === 'PX') {
-    const timeout = parseInt(parsedValue[4]?.toString() ?? '');
-    if (isNaN(timeout)) {
-      return '-ERR invalid timeout\r\n';
-    }
-    setTimeout(() => {
-      map.set(key, undefined);
-    }, timeout);
-  }
-
-  return '+OK\r\n';
-}
-
-function handleGetCommand(
-  parsedValue: any,
-  map: Map<string, string | undefined>
-) {
-  const key = parsedValue[1]?.toString();
-
-  if (!key) {
-    return '-ERR invalid arguments\r\n';
-  }
-
-  // Check in-process map
-  if (map.has(key) && map.get(key) !== undefined) {
-    return `${_formatStringResponse(map.get(key))}`;
-  }
-
-  return '$-1\r\n';
-}
-
-function handleConfigCommand(parsedValue: any) {
-  const nestedCommand = parsedValue[1]?.toString();
-  if (!nestedCommand) {
-    return '-ERR missing second argument for CONFIG\r\n';
-  }
-  if (nestedCommand === 'GET') {
-    const parameter = parsedValue[2]?.toString();
-    if (!parameter) {
-      return '-ERR invalid arguments\r\n';
-    }
-
-    switch (parameter) {
-      case 'dir':
-        const dirArr = ['dir', CONFIG.dir];
-        return _formatArrResponse(dirArr);
-      case 'dbfilename':
-        const dbArr = ['dbfilename', CONFIG.dbFileName];
-        return _formatArrResponse(dbArr);
-      default:
-        return '-ERR unsupported parameter\r\n';
-    }
-  } else {
-    return '-ERR unsupported nested command for CONFIG\r\n';
-  }
-}
-
-function handleKeysCommand(
-  parsedValue: any,
-  map: Map<string, string | undefined>
-) {
-  const parameter = parsedValue[1]?.toString();
-  if (!parameter) {
-    return '-ERR invalid arguments\r\n';
-  }
-
-  if (parameter === '*') {
-    const entries = map.entries();
-    return _formatArrResponse(Array.from(entries).map(([key]) => key));
-  }
-  return '-ERR not implemented\r\n';
-}
-
-function handleInfoCommand(parsedValue: any) {
-  const nestedCommand = parsedValue[1]?.toString();
-  if (!nestedCommand) {
-    return '-ERR missing second argument for INFO\r\n';
-  }
-  switch (nestedCommand) {
-    case 'replication':
-      if (CONFIG.replicaOf) {
-        return _formatStringResponse('role:slave');
-      } else {
-        return _formatStringResponse('role:master');
-      }
-    default:
-      return '-ERR unsupported nested command for INFO\r\n';
-  }
-}
-
-function _formatStringResponse(value: string | undefined): string {
-  if (!value) {
-    return '-1\r\n';
-  }
-  return `$${value.length}\r\n${value}\r\n`;
-}
-
-function _formatArrResponse(data: string[]): string {
-  let response = `*${data.length}\r\n`;
-  data.forEach((d) => {
-    response += `$${d.length}\r\n${d}\r\n`;
-  });
-  return response;
 }
