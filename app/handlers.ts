@@ -134,6 +134,7 @@ export function _formatStringResponseWithMultipleWords(
   words.forEach((word) => {
     base += `\r\n${word}`;
   });
+  base += '\r\n';
   return base;
 }
 
