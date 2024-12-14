@@ -5,6 +5,10 @@ export function handlePing(): string {
   return '+PONG\r\n';
 }
 
+export function handleReplicaConnection(): string {
+  return _formatArrResponse(['PING']);
+}
+
 export function handleEchoCommand(parsedValue: any): string {
   return _formatStringResponse(parsedValue[1]?.toString());
 }

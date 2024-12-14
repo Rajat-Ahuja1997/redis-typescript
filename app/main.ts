@@ -10,6 +10,7 @@ import {
   handleInfoCommand,
   handleConfigCommand,
   handleGetCommand,
+  handleReplicaConnection,
 } from './handlers';
 
 const parameters = Bun.argv.slice(2);
@@ -59,6 +60,15 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
 });
 
 server.listen(CONFIG.port, LOCALHOST);
+
+if (CONFIG.replicaOf) {
+  const [host, port] = CONFIG.replicaOf.split(' ');
+  const client = new net.Socket();
+  client.connect(parseInt(port), host, () => {
+    const pingCommand = handleReplicaConnection();
+    client.write(pingCommand);
+  });
+}
 
 function handleParsedInput(
   parsedInput: RESPData | null,
