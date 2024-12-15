@@ -68,12 +68,14 @@ if (CONFIG.replicaOf) {
   const pingCommand = handleReplicaConnection();
   const replConf1 = ['REPLCONF', 'listening-port', CONFIG.port.toString()];
   const replConf2 = ['REPLCONF', 'capa', 'psync2'];
+  const initialSyncCommand = ['PSYNC', '?', '-1'];
 
   console.log(`Connecting replica to ${host}:${port}`);
 
   client.connect(parseInt(port), host, () => {
     client.write(pingCommand);
   });
+  let respCount = 0;
 
   client.on('data', (data: Buffer) => {
     const msg = Buffer.from(data).toString('utf-8');
@@ -81,10 +83,17 @@ if (CONFIG.replicaOf) {
 
     const parser = new RESPParser();
     const parsedInput = parser.parse(data);
-    console.log('parsedInput', parsedInput);
-    if (msg.toUpperCase().includes('PONG')) {
+    if (parsedInput?.value === 'PONG') {
+      respCount++;
       client.write(_formatArrResponse(replConf1));
       client.write(_formatArrResponse(replConf2));
+    } else if (parsedInput?.value === 'OK') {
+      respCount++;
+    }
+
+    if (respCount === 3) {
+      client.write(_formatArrResponse(initialSyncCommand));
+      console.log('Initial sync complete');
     }
   });
 }
