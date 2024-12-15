@@ -11,6 +11,7 @@ import {
   handleConfigCommand,
   handleGetCommand,
   handleReplicaConnection,
+  _formatArrResponse,
 } from './handlers';
 
 const parameters = Bun.argv.slice(2);
@@ -59,14 +60,32 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
   });
 });
 
-server.listen(CONFIG.port, LOCALHOST);
+server.listen(CONFIG.port, LOCALHOST); // start server
 
 if (CONFIG.replicaOf) {
   const [host, port] = CONFIG.replicaOf.split(' ');
   const client = new net.Socket();
+  const pingCommand = handleReplicaConnection();
+  const replConf1 = ['REPLCONF', 'listening-port', CONFIG.port.toString()];
+  const replConf2 = ['REPLCONF', 'capa', 'psync2'];
+
+  console.log(`Connecting replica to ${host}:${port}`);
+
   client.connect(parseInt(port), host, () => {
-    const pingCommand = handleReplicaConnection();
     client.write(pingCommand);
+  });
+
+  client.on('data', (data: Buffer) => {
+    const msg = Buffer.from(data).toString('utf-8');
+    console.log('Received from master', msg);
+
+    const parser = new RESPParser();
+    const parsedInput = parser.parse(data);
+    console.log('parsedInput', parsedInput);
+    if (msg.toUpperCase().includes('PONG')) {
+      client.write(_formatArrResponse(replConf1));
+      client.write(_formatArrResponse(replConf2));
+    }
   });
 }
 
