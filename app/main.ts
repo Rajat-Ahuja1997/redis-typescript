@@ -12,6 +12,7 @@ import {
   handleGetCommand,
   handleReplicaConnection,
   _formatArrResponse,
+  handleReplConfCommand,
 } from './handlers';
 
 const parameters = Bun.argv.slice(2);
@@ -126,7 +127,8 @@ function handleParsedInput(
         return handleKeysCommand(parsedValue, map);
       case RedisCommand.INFO:
         return handleInfoCommand(parsedValue);
-
+      case RedisCommand.REPLCONF:
+        return handleReplConfCommand(parsedValue);
       default:
         return '-ERR unknown command\r\n';
     }

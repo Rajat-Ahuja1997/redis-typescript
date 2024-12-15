@@ -121,6 +121,10 @@ export function handleInfoCommand(parsedValue: any) {
   }
 }
 
+export function handleReplConfCommand(parsedValue: any) {
+  return _formatStringResponse('OK');
+}
+
 function _formatStringResponse(value: string | undefined): string {
   if (!value) {
     return '-1\r\n';

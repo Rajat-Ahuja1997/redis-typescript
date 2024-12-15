@@ -8,6 +8,7 @@ export enum RedisCommand {
   CONFIG = 'CONFIG',
   KEYS = 'KEYS',
   INFO = 'INFO',
+  REPLCONF = 'REPLCONF',
 }
 
 export const REDIS_PORT = 6379;
