@@ -13,7 +13,10 @@ import {
   handleReplicaConnection,
   _formatArrResponse,
   handleReplConfCommand,
+  _generateRandomString,
+  handlePsyncCommand,
 } from './handlers';
+import { REPL_ID, REPL_OFFSET } from './constants';
 
 const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
@@ -29,6 +32,8 @@ export const CONFIG = {
 };
 
 let globalKeyValueStore: Map<string, string | undefined> = new Map();
+globalKeyValueStore.set(REPL_ID, _generateRandomString(40));
+globalKeyValueStore.set(REPL_OFFSET, '0');
 
 // Load RDB file at startup
 try {
@@ -126,9 +131,11 @@ function handleParsedInput(
       case RedisCommand.KEYS:
         return handleKeysCommand(parsedValue, map);
       case RedisCommand.INFO:
-        return handleInfoCommand(parsedValue);
+        return handleInfoCommand(parsedValue, map);
       case RedisCommand.REPLCONF:
         return handleReplConfCommand(parsedValue);
+      case RedisCommand.PSYNC:
+        return handlePsyncCommand(map);
       default:
         return '-ERR unknown command\r\n';
     }

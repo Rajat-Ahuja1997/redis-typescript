@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { CONFIG } from './main';
+import { MASTER_ROLE, REPL_ID, REPL_OFFSET, SLAVE_ROLE } from './constants';
 
 export function handlePing(): string {
   return '+PONG\r\n';
@@ -93,14 +94,19 @@ export function handleKeysCommand(
 
   if (parameter === '*') {
     const entries = map.entries();
-    return _formatArrResponse(Array.from(entries).map(([key]) => key));
+    // filter out redis-specific keys
+    const filteredEntries = Array.from(entries).filter(
+      ([key]) => key !== REPL_ID && key !== REPL_OFFSET
+    );
+    return _formatArrResponse(filteredEntries.map(([key]) => key));
   }
   return '-ERR not implemented\r\n';
 }
 
-export function handleInfoCommand(parsedValue: any) {
-  const masterReplicationId = _generateRandomString(40);
-  const offset = 0;
+export function handleInfoCommand(
+  parsedValue: any,
+  map: Map<string, string | undefined>
+) {
   const nestedCommand = parsedValue[1]?.toString();
   if (!nestedCommand) {
     return '-ERR missing second argument for INFO\r\n';
@@ -108,12 +114,14 @@ export function handleInfoCommand(parsedValue: any) {
   switch (nestedCommand) {
     case 'replication':
       if (CONFIG.replicaOf) {
-        return _formatStringResponse('role:slave');
+        return _formatStringResponse(SLAVE_ROLE);
       } else {
+        const masterReplicationId = map.get(REPL_ID);
+        const offset = map.get(REPL_OFFSET);
         return _formatStringResponseWithMultipleWords([
-          'role:master',
-          `master_replid:${masterReplicationId}`,
-          `master_repl_offset:${offset}`,
+          MASTER_ROLE,
+          `${REPL_ID}:${masterReplicationId}`,
+          `${REPL_OFFSET}:${offset}`,
         ]);
       }
     default:
@@ -123,6 +131,11 @@ export function handleInfoCommand(parsedValue: any) {
 
 export function handleReplConfCommand(parsedValue: any) {
   return _formatStringResponse('OK');
+}
+
+export function handlePsyncCommand(map: Map<string, string | undefined>) {
+  const msg = `FULLRESYNC ${map.get(REPL_ID)} ${map.get(REPL_OFFSET)}`;
+  return _formatStringResponse(msg);
 }
 
 function _formatStringResponse(value: string | undefined): string {
