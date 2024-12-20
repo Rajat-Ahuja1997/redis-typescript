@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { CONFIG } from './main';
 import { MASTER_ROLE, REPL_ID, REPL_OFFSET, SLAVE_ROLE } from './constants';
+import * as net from 'net';
 
 export function handlePing(): string {
   return '+PONG\r\n';
@@ -16,7 +17,8 @@ export function handleEchoCommand(parsedValue: any): string {
 
 export function handleSetCommand(
   parsedValue: any,
-  map: Map<string, string | undefined>
+  map: Map<string, string | undefined>,
+  replicas: Set<net.Socket>
 ) {
   const key = parsedValue[1]?.toString();
   const value = parsedValue[2]?.toString();
@@ -36,6 +38,9 @@ export function handleSetCommand(
     }, timeout);
   }
 
+  for (const replica of replicas) {
+    replica.write(_formatArrResponse(['SET', key, value]));
+  }
   return '+OK\r\n';
 }
 

@@ -32,6 +32,8 @@ export const CONFIG = {
   replicaOf: replicationIndex !== -1 ? parameters[replicationIndex + 1] : null,
 };
 
+const connectedReplicas: Set<net.Socket> = new Set();
+
 let globalKeyValueStore: Map<string, string | undefined> = new Map();
 globalKeyValueStore.set(REPL_ID, _generateRandomString(40));
 globalKeyValueStore.set(REPL_OFFSET, '0');
@@ -58,13 +60,18 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
     const response = await handleParsedInput(parsedInput, globalKeyValueStore);
     if (response) {
       for (const msg of response) {
-        connection.write(msg);
+        if (typeof msg === 'string' && msg === 'REPLICA') {
+          connectedReplicas.add(connection);
+        } else {
+          connection.write(msg);
+        }
       }
     }
   });
 
   connection.on('close', () => {
     console.log('connection closed');
+    connectedReplicas.delete(connection);
     connection.end();
   });
 });
@@ -129,7 +136,7 @@ async function handleParsedInput(
         responses.push(handleEchoCommand(parsedValue));
         break;
       case RedisCommand.SET:
-        responses.push(handleSetCommand(parsedValue, map));
+        responses.push(handleSetCommand(parsedValue, map, connectedReplicas));
         break;
       case RedisCommand.GET:
         responses.push(handleGetCommand(parsedValue, map));
@@ -144,6 +151,7 @@ async function handleParsedInput(
         responses.push(handleInfoCommand(parsedValue, map));
         break;
       case RedisCommand.REPLCONF:
+        responses.push('REPLICA');
         responses.push(handleReplConfCommand(parsedValue));
         break;
       case RedisCommand.PSYNC:
