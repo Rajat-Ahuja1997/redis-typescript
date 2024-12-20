@@ -15,8 +15,9 @@ import {
   handleReplConfCommand,
   _generateRandomString,
   handlePsyncCommand,
+  _formatStringResponse,
 } from './handlers';
-import { REPL_ID, REPL_OFFSET } from './constants';
+import { EMPTY_RDB_HEX, REPL_ID, REPL_OFFSET } from './constants';
 
 const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
@@ -47,16 +48,18 @@ try {
 }
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
-  connection.on('data', (data: Buffer) => {
+  connection.on('data', async (data: Buffer) => {
     const parser = new RESPParser();
     const parsedInput = parser.parse(data);
     if (!parsedInput) {
       return;
     }
 
-    const response = handleParsedInput(parsedInput, globalKeyValueStore);
+    const response = await handleParsedInput(parsedInput, globalKeyValueStore);
     if (response) {
-      connection.write(response);
+      for (const msg of response) {
+        connection.write(msg);
+      }
     }
   });
 
@@ -104,43 +107,56 @@ if (CONFIG.replicaOf) {
   });
 }
 
-function handleParsedInput(
+async function handleParsedInput(
   parsedInput: RESPData | null,
   map: Map<string, string | undefined>
-): string | null {
+): Promise<(string | Buffer)[] | null> {
   if (!parsedInput || !parsedInput.value) {
     return null;
   }
   const parsedValue = parsedInput.value;
 
+  const responses: (string | Buffer)[] = [];
   if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
     const command = (parsedValue[0] ?? '')
       .toString()
       .toUpperCase() as RedisCommand;
     switch (command) {
       case RedisCommand.PING:
-        return handlePing();
+        responses.push(handlePing());
+        break;
       case RedisCommand.ECHO:
-        return handleEchoCommand(parsedValue);
+        responses.push(handleEchoCommand(parsedValue));
+        break;
       case RedisCommand.SET:
-        return handleSetCommand(parsedValue, map);
+        responses.push(handleSetCommand(parsedValue, map));
+        break;
       case RedisCommand.GET:
-        return handleGetCommand(parsedValue, map);
+        responses.push(handleGetCommand(parsedValue, map));
+        break;
       case RedisCommand.CONFIG:
-        return handleConfigCommand(parsedValue);
+        responses.push(handleConfigCommand(parsedValue));
+        break;
       case RedisCommand.KEYS:
-        return handleKeysCommand(parsedValue, map);
+        responses.push(handleKeysCommand(parsedValue, map));
+        break;
       case RedisCommand.INFO:
-        return handleInfoCommand(parsedValue, map);
+        responses.push(handleInfoCommand(parsedValue, map));
+        break;
       case RedisCommand.REPLCONF:
-        return handleReplConfCommand(parsedValue);
+        responses.push(handleReplConfCommand(parsedValue));
+        break;
       case RedisCommand.PSYNC:
-        return handlePsyncCommand(map);
+        responses.push(handlePsyncCommand(map));
+        const rdbBuffer = Buffer.from(EMPTY_RDB_HEX, 'hex');
+        responses.push(`$${rdbBuffer.length.toString()}\r\n`);
+        responses.push(rdbBuffer);
+        break;
       default:
-        return '-ERR unknown command\r\n';
+        responses.push('-ERR unknown command\r\n');
     }
   }
-  return null;
+  return responses;
 }
 
 /**

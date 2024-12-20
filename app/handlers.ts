@@ -138,7 +138,7 @@ export function handlePsyncCommand(map: Map<string, string | undefined>) {
   return _formatStringResponse(msg);
 }
 
-function _formatStringResponse(value: string | undefined): string {
+export function _formatStringResponse(value: string | undefined): string {
   if (!value) {
     return '-1\r\n';
   }
