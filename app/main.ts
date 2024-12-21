@@ -5,19 +5,19 @@ import { LOCALHOST, REDIS_PORT, RedisCommand } from './types';
 import {
   handlePing,
   handleEchoCommand,
-  handleKeysCommand,
   handleSetCommand,
+  handleGetCommand,
+  handleKeysCommand,
   handleInfoCommand,
   handleConfigCommand,
-  handleGetCommand,
   handleReplicaConnection,
-  _formatArrResponse,
   handleReplConfCommand,
-  _generateRandomString,
   handlePsyncCommand,
+  _formatArrResponse,
   _formatStringResponse,
+  _generateRandomString,
 } from './handlers';
-import { EMPTY_RDB_HEX, REPL_ID, REPL_OFFSET } from './constants';
+import { EMPTY_RDB_HEX, MASTER_REPL_ID, MASTER_REPL_OFFSET } from './constants';
 
 const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
@@ -33,10 +33,9 @@ export const CONFIG = {
 };
 
 const connectedReplicas: Set<net.Socket> = new Set();
-
-let globalKeyValueStore: Map<string, string | undefined> = new Map();
-globalKeyValueStore.set(REPL_ID, _generateRandomString(40));
-globalKeyValueStore.set(REPL_OFFSET, '0');
+let redisMap: Map<string, string | undefined> = new Map();
+redisMap.set(MASTER_REPL_ID, _generateRandomString(40));
+redisMap.set(MASTER_REPL_OFFSET, '0');
 
 // Load RDB file at startup
 try {
@@ -44,20 +43,24 @@ try {
   const content = fs.readFileSync(filepath);
   const hexContent = content.toString('hex');
   const db = hexContent.slice(hexContent.indexOf('fe'));
-  globalKeyValueStore = _loadRDBFile(db, globalKeyValueStore);
+  redisMap = _loadRDBFile(db, redisMap);
 } catch (e) {
   console.log('Error reading initial RDB file', e);
 }
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on('data', async (data: Buffer) => {
+    if (CONFIG.replicaOf) {
+      console.log('Received data from client', data);
+      console.log(redisMap);
+    }
     const parser = new RESPParser();
     const parsedInput = parser.parse(data);
     if (!parsedInput) {
       return;
     }
 
-    const response = await handleParsedInput(parsedInput, globalKeyValueStore);
+    const response = await handleParsedInput(parsedInput, redisMap);
     if (response) {
       for (const msg of response) {
         if (typeof msg === 'string' && msg === 'REPLICA') {
@@ -79,39 +82,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
 server.listen(CONFIG.port, LOCALHOST); // start server
 
 if (CONFIG.replicaOf) {
-  const [host, port] = CONFIG.replicaOf.split(' ');
-  const client = new net.Socket();
-  const pingCommand = handleReplicaConnection();
-  const replConf1 = ['REPLCONF', 'listening-port', CONFIG.port.toString()];
-  const replConf2 = ['REPLCONF', 'capa', 'psync2'];
-  const initialSyncCommand = ['PSYNC', '?', '-1'];
-
-  console.log(`Connecting replica to ${host}:${port}`);
-
-  client.connect(parseInt(port), host, () => {
-    client.write(pingCommand);
-  });
-  let respCount = 0;
-
-  client.on('data', (data: Buffer) => {
-    const msg = Buffer.from(data).toString('utf-8');
-    console.log('Received from master', msg);
-
-    const parser = new RESPParser();
-    const parsedInput = parser.parse(data);
-    if (parsedInput?.value === 'PONG') {
-      respCount++;
-      client.write(_formatArrResponse(replConf1));
-      client.write(_formatArrResponse(replConf2));
-    } else if (parsedInput?.value === 'OK') {
-      respCount++;
-    }
-
-    if (respCount === 3) {
-      client.write(_formatArrResponse(initialSyncCommand));
-      console.log('Initial sync complete');
-    }
-  });
+  processReplicaConnection();
 }
 
 async function handleParsedInput(
@@ -136,6 +107,9 @@ async function handleParsedInput(
         responses.push(handleEchoCommand(parsedValue));
         break;
       case RedisCommand.SET:
+        if (CONFIG.replicaOf) {
+          console.log(parsedValue);
+        }
         responses.push(handleSetCommand(parsedValue, map, connectedReplicas));
         break;
       case RedisCommand.GET:
@@ -165,6 +139,68 @@ async function handleParsedInput(
     }
   }
   return responses;
+}
+
+function processReplicaConnection() {
+  if (!CONFIG.replicaOf) {
+    console.log('No replica connection');
+    return;
+  }
+  const [host, port] = CONFIG.replicaOf.split(' ');
+  const client = new net.Socket();
+  const pingCommand = handleReplicaConnection();
+  const replConf1 = ['REPLCONF', 'listening-port', CONFIG.port.toString()];
+  const replConf2 = ['REPLCONF', 'capa', 'psync2'];
+  const initialSyncCommand = ['PSYNC', '?', '-1'];
+
+  client.connect(parseInt(port), host, () => {
+    client.write(pingCommand);
+  });
+  let respCount = 0;
+
+  client.on('data', async (data: Buffer) => {
+    const parser = new RESPParser();
+    const parsedInput = parser.parse(data);
+
+    if (parsedInput?.value === 'PONG') {
+      respCount++;
+      client.write(_formatArrResponse(replConf1));
+      client.write(_formatArrResponse(replConf2));
+    } else if (parsedInput?.value === 'OK') {
+      respCount++;
+    } else {
+      const dataStr = data.toString();
+      if (dataStr.startsWith('+FULLRESYNC')) {
+        // try to parse the data as a full sync
+        const firstLineEnd = data.indexOf('\r\n');
+        const rdbLengthEnd = data.indexOf('\r\n', firstLineEnd + 2);
+        const rdbStart = rdbLengthEnd + 2;
+
+        const rdbEndMarker = data.indexOf(0xff, rdbStart);
+        // advance past market and 8 byte checksum
+        const commandsStart = rdbEndMarker + 9;
+        const remainingData = data.subarray(commandsStart);
+        const decodedData = Buffer.from(remainingData).toString('utf-8');
+
+        // Split RESP array commands, preserving the RESP format
+        const lines = decodedData
+          .split('*')
+          .filter((line) => line.trim().length > 0)
+          .map((line) => '*' + line);
+
+        const parser = new RESPParser();
+        for (const line of lines) {
+          const parsedInput = parser.parse(line);
+          await handleParsedInput(parsedInput, redisMap);
+        }
+      }
+    }
+
+    if (respCount === 3) {
+      client.write(_formatArrResponse(initialSyncCommand));
+      console.log('Initial sync complete');
+    }
+  });
 }
 
 /**

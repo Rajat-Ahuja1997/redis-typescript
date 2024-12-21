@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { CONFIG } from './main';
-import { MASTER_ROLE, REPL_ID, REPL_OFFSET, SLAVE_ROLE } from './constants';
+import {
+  MASTER_ROLE,
+  MASTER_REPL_ID,
+  MASTER_REPL_OFFSET,
+  SLAVE_ROLE,
+} from './constants';
 import * as net from 'net';
 
 export function handlePing(): string {
@@ -101,7 +106,7 @@ export function handleKeysCommand(
     const entries = map.entries();
     // filter out redis-specific keys
     const filteredEntries = Array.from(entries).filter(
-      ([key]) => key !== REPL_ID && key !== REPL_OFFSET
+      ([key]) => key !== MASTER_REPL_ID && key !== MASTER_REPL_OFFSET
     );
     return _formatArrResponse(filteredEntries.map(([key]) => key));
   }
@@ -121,12 +126,12 @@ export function handleInfoCommand(
       if (CONFIG.replicaOf) {
         return _formatStringResponse(SLAVE_ROLE);
       } else {
-        const masterReplicationId = map.get(REPL_ID);
-        const offset = map.get(REPL_OFFSET);
+        const masterReplicationId = map.get(MASTER_REPL_ID);
+        const offset = map.get(MASTER_REPL_OFFSET);
         return _formatStringResponseWithMultipleWords([
           MASTER_ROLE,
-          `${REPL_ID}:${masterReplicationId}`,
-          `${REPL_OFFSET}:${offset}`,
+          `${MASTER_REPL_ID}:${masterReplicationId}`,
+          `${MASTER_REPL_OFFSET}:${offset}`,
         ]);
       }
     default:
@@ -139,7 +144,9 @@ export function handleReplConfCommand(parsedValue: any) {
 }
 
 export function handlePsyncCommand(map: Map<string, string | undefined>) {
-  const msg = `FULLRESYNC ${map.get(REPL_ID)} ${map.get(REPL_OFFSET)}`;
+  const msg = `FULLRESYNC ${map.get(MASTER_REPL_ID)} ${map.get(
+    MASTER_REPL_OFFSET
+  )}`;
   return _formatStringResponse(msg);
 }
 
