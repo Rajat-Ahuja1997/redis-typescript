@@ -1,23 +1,15 @@
 import * as net from 'net';
 import * as fs from 'fs';
-import RESPParser, { type RESPData } from './parser';
-import { LOCALHOST, REDIS_PORT, RedisCommand } from './types';
+import RESPParser from './parser';
+import { LOCALHOST, REDIS_PORT, type Config } from './types';
 import {
-  handlePing,
-  handleEchoCommand,
-  handleSetCommand,
-  handleGetCommand,
-  handleKeysCommand,
-  handleInfoCommand,
-  handleConfigCommand,
-  handleReplicaConnection,
-  handleReplConfCommand,
-  handlePsyncCommand,
   _formatArrResponse,
   _formatStringResponse,
   _generateRandomString,
+  handleParsedInput,
+  handleReplicaConnection,
 } from './handlers';
-import { EMPTY_RDB_HEX, MASTER_REPL_ID, MASTER_REPL_OFFSET } from './constants';
+import { MASTER_REPL_ID, MASTER_REPL_OFFSET } from './constants';
 
 const parameters = Bun.argv.slice(2);
 const dirIndex = parameters.indexOf('--dir');
@@ -25,7 +17,7 @@ const dbFilenameIndex = parameters.indexOf('--dbfilename');
 const portIndex = parameters.indexOf('--port');
 const replicationIndex = parameters.indexOf('--replicaof');
 
-export const CONFIG = {
+export const CONFIG: Config = {
   dir: parameters[dirIndex + 1] ?? '',
   dbFileName: parameters[dbFilenameIndex + 1] ?? '',
   port: portIndex !== -1 ? parseInt(parameters[portIndex + 1]) : REDIS_PORT,
@@ -50,17 +42,17 @@ try {
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on('data', async (data: Buffer) => {
-    if (CONFIG.replicaOf) {
-      console.log('Received data from client', data);
-      console.log(redisMap);
-    }
     const parser = new RESPParser();
     const parsedInput = parser.parse(data);
     if (!parsedInput) {
       return;
     }
 
-    const response = await handleParsedInput(parsedInput, redisMap);
+    const response = await handleParsedInput(
+      parsedInput,
+      redisMap,
+      connectedReplicas
+    );
     if (response) {
       for (const msg of response) {
         if (typeof msg === 'string' && msg === 'REPLICA') {
@@ -83,62 +75,6 @@ server.listen(CONFIG.port, LOCALHOST); // start server
 
 if (CONFIG.replicaOf) {
   processReplicaConnection();
-}
-
-async function handleParsedInput(
-  parsedInput: RESPData | null,
-  map: Map<string, string | undefined>
-): Promise<(string | Buffer)[] | null> {
-  if (!parsedInput || !parsedInput.value) {
-    return null;
-  }
-  const parsedValue = parsedInput.value;
-
-  const responses: (string | Buffer)[] = [];
-  if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
-    const command = (parsedValue[0] ?? '')
-      .toString()
-      .toUpperCase() as RedisCommand;
-    switch (command) {
-      case RedisCommand.PING:
-        responses.push(handlePing());
-        break;
-      case RedisCommand.ECHO:
-        responses.push(handleEchoCommand(parsedValue));
-        break;
-      case RedisCommand.SET:
-        if (CONFIG.replicaOf) {
-          console.log(parsedValue);
-        }
-        responses.push(handleSetCommand(parsedValue, map, connectedReplicas));
-        break;
-      case RedisCommand.GET:
-        responses.push(handleGetCommand(parsedValue, map));
-        break;
-      case RedisCommand.CONFIG:
-        responses.push(handleConfigCommand(parsedValue));
-        break;
-      case RedisCommand.KEYS:
-        responses.push(handleKeysCommand(parsedValue, map));
-        break;
-      case RedisCommand.INFO:
-        responses.push(handleInfoCommand(parsedValue, map));
-        break;
-      case RedisCommand.REPLCONF:
-        responses.push('REPLICA');
-        responses.push(handleReplConfCommand(parsedValue));
-        break;
-      case RedisCommand.PSYNC:
-        responses.push(handlePsyncCommand(map));
-        const rdbBuffer = Buffer.from(EMPTY_RDB_HEX, 'hex');
-        responses.push(`$${rdbBuffer.length.toString()}\r\n`);
-        responses.push(rdbBuffer);
-        break;
-      default:
-        responses.push('-ERR unknown command\r\n');
-    }
-  }
-  return responses;
 }
 
 function processReplicaConnection() {
@@ -191,7 +127,7 @@ function processReplicaConnection() {
         const parser = new RESPParser();
         for (const line of lines) {
           const parsedInput = parser.parse(line);
-          await handleParsedInput(parsedInput, redisMap);
+          await handleParsedInput(parsedInput, redisMap, connectedReplicas);
         }
       }
     }

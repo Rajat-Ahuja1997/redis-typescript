@@ -5,10 +5,12 @@ import {
   MASTER_REPL_ID,
   MASTER_REPL_OFFSET,
   SLAVE_ROLE,
+  EMPTY_RDB_HEX,
 } from './constants';
 import * as net from 'net';
+import { type RESPData, RedisCommand } from './types';
 
-export function handlePing(): string {
+function handlePing(): string {
   return '+PONG\r\n';
 }
 
@@ -16,11 +18,11 @@ export function handleReplicaConnection(): string {
   return _formatArrResponse(['PING']);
 }
 
-export function handleEchoCommand(parsedValue: any): string {
+function handleEchoCommand(parsedValue: any): string {
   return _formatStringResponse(parsedValue[1]?.toString());
 }
 
-export function handleSetCommand(
+function handleSetCommand(
   parsedValue: any,
   map: Map<string, string | undefined>,
   replicas: Set<net.Socket>
@@ -49,7 +51,7 @@ export function handleSetCommand(
   return '+OK\r\n';
 }
 
-export function handleGetCommand(
+function handleGetCommand(
   parsedValue: any,
   map: Map<string, string | undefined>
 ) {
@@ -67,7 +69,7 @@ export function handleGetCommand(
   return '$-1\r\n';
 }
 
-export function handleConfigCommand(parsedValue: any) {
+function handleConfigCommand(parsedValue: any) {
   const nestedCommand = parsedValue[1]?.toString();
   if (!nestedCommand) {
     return '-ERR missing second argument for CONFIG\r\n';
@@ -93,7 +95,7 @@ export function handleConfigCommand(parsedValue: any) {
   }
 }
 
-export function handleKeysCommand(
+function handleKeysCommand(
   parsedValue: any,
   map: Map<string, string | undefined>
 ) {
@@ -113,7 +115,7 @@ export function handleKeysCommand(
   return '-ERR not implemented\r\n';
 }
 
-export function handleInfoCommand(
+function handleInfoCommand(
   parsedValue: any,
   map: Map<string, string | undefined>
 ) {
@@ -139,27 +141,25 @@ export function handleInfoCommand(
   }
 }
 
-export function handleReplConfCommand(parsedValue: any) {
+function handleReplConfCommand(parsedValue: any) {
   return _formatStringResponse('OK');
 }
 
-export function handlePsyncCommand(map: Map<string, string | undefined>) {
+function handlePsyncCommand(map: Map<string, string | undefined>) {
   const msg = `FULLRESYNC ${map.get(MASTER_REPL_ID)} ${map.get(
     MASTER_REPL_OFFSET
   )}`;
   return _formatStringResponse(msg);
 }
 
-export function _formatStringResponse(value: string | undefined): string {
+function _formatStringResponse(value: string | undefined): string {
   if (!value) {
     return '-1\r\n';
   }
   return `$${value.length}\r\n${value}\r\n`;
 }
 
-export function _formatStringResponseWithMultipleWords(
-  words: string[]
-): string {
+function _formatStringResponseWithMultipleWords(words: string[]): string {
   if (!words.length) {
     return '-1\r\n';
   }
@@ -171,7 +171,7 @@ export function _formatStringResponseWithMultipleWords(
   return base;
 }
 
-export function _formatArrResponse(data: string[]): string {
+function _formatArrResponse(data: string[]): string {
   let response = `*${data.length}\r\n`;
   data.forEach((d) => {
     response += `$${d.length}\r\n${d}\r\n`;
@@ -179,6 +179,65 @@ export function _formatArrResponse(data: string[]): string {
   return response;
 }
 
-export function _generateRandomString(length: number): string {
+function _generateRandomString(length: number): string {
   return crypto.randomBytes(length).toString('hex').slice(0, length);
 }
+
+export async function handleParsedInput(
+  parsedInput: RESPData | null,
+  map: Map<string, string | undefined>,
+  connectedReplicas: Set<net.Socket>
+): Promise<(string | Buffer)[] | null> {
+  if (!parsedInput || !parsedInput.value) {
+    return null;
+  }
+  const parsedValue = parsedInput.value;
+
+  const responses: (string | Buffer)[] = [];
+  if (parsedInput.type === '*' && Array.isArray(parsedValue)) {
+    const command = (parsedValue[0] ?? '')
+      .toString()
+      .toUpperCase() as RedisCommand;
+    switch (command) {
+      case RedisCommand.PING:
+        responses.push(handlePing());
+        break;
+      case RedisCommand.ECHO:
+        responses.push(handleEchoCommand(parsedValue));
+        break;
+      case RedisCommand.SET:
+        if (CONFIG.replicaOf) {
+          console.log(parsedValue);
+        }
+        responses.push(handleSetCommand(parsedValue, map, connectedReplicas));
+        break;
+      case RedisCommand.GET:
+        responses.push(handleGetCommand(parsedValue, map));
+        break;
+      case RedisCommand.CONFIG:
+        responses.push(handleConfigCommand(parsedValue));
+        break;
+      case RedisCommand.KEYS:
+        responses.push(handleKeysCommand(parsedValue, map));
+        break;
+      case RedisCommand.INFO:
+        responses.push(handleInfoCommand(parsedValue, map));
+        break;
+      case RedisCommand.REPLCONF:
+        responses.push('REPLICA');
+        responses.push(handleReplConfCommand(parsedValue));
+        break;
+      case RedisCommand.PSYNC:
+        responses.push(handlePsyncCommand(map));
+        const rdbBuffer = Buffer.from(EMPTY_RDB_HEX, 'hex');
+        responses.push(`$${rdbBuffer.length.toString()}\r\n`);
+        responses.push(rdbBuffer);
+        break;
+      default:
+        responses.push('-ERR unknown command\r\n');
+    }
+  }
+  return responses;
+}
+
+export { _formatArrResponse, _formatStringResponse, _generateRandomString };

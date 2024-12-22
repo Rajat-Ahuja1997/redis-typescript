@@ -1,15 +1,4 @@
-enum RESPType {
-  String = '+',
-  Integer = ':',
-  Bulk = '$',
-  Array = '*',
-  Error = '-',
-}
-
-export interface RESPData {
-  type: RESPType;
-  value: string | number | null | (string | number | null)[];
-}
+import { RESPType, type RESPData } from './types';
 
 export default class RESPParser {
   private buffer: string = '';
@@ -44,6 +33,7 @@ export default class RESPParser {
 
     return result;
   }
+
   private parseSimpleString(): RESPData {
     const endIndex = this.buffer.indexOf('\r\n');
     const value = this.buffer.slice(1, endIndex);
