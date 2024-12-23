@@ -24,7 +24,7 @@ export const CONFIG: Config = {
   replicaOf: replicationIndex !== -1 ? parameters[replicationIndex + 1] : null,
 };
 
-const connectedReplicas: Set<net.Socket> = new Set();
+const replicas: Set<net.Socket> = new Set();
 let redisMap: Map<string, string | undefined> = new Map();
 redisMap.set(MASTER_REPL_ID, _generateRandomString(40));
 redisMap.set(MASTER_REPL_OFFSET, '0');
@@ -48,15 +48,11 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
       return;
     }
 
-    const response = await handleParsedInput(
-      parsedInput,
-      redisMap,
-      connectedReplicas
-    );
+    const response = await handleParsedInput(parsedInput, redisMap, replicas);
     if (response) {
       for (const msg of response) {
         if (typeof msg === 'string' && msg === 'REPLICA') {
-          connectedReplicas.add(connection);
+          replicas.add(connection);
         } else {
           connection.write(msg);
         }
@@ -66,7 +62,7 @@ const server: net.Server = net.createServer((connection: net.Socket) => {
 
   connection.on('close', () => {
     console.log('connection closed');
-    connectedReplicas.delete(connection);
+    replicas.delete(connection);
     connection.end();
   });
 });
@@ -127,7 +123,7 @@ function processReplicaConnection() {
         const parser = new RESPParser();
         for (const line of lines) {
           const parsedInput = parser.parse(line);
-          await handleParsedInput(parsedInput, redisMap, connectedReplicas);
+          await handleParsedInput(parsedInput, redisMap, replicas);
         }
       }
     }
