@@ -1,1 +1,1 @@
-Building a redis server in typescript
+Redis server implementation in TypeScript
